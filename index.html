@@ -371,7 +371,8 @@ async function deleteRec() {
 /* ---------- OCR ---------- */
 function setOcrStatus(msg, cls) { const s = $('#ocrStatus'); s.textContent = msg; s.className = cls || 'muted'; }
 
-function fileToJpeg(file, max = 2000) {
+// 画像を読み込んでcanvasにする（長辺max px）
+function loadToCanvas(file, max) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     const url = URL.createObjectURL(file);
@@ -381,11 +382,78 @@ function fileToJpeg(file, max = 2000) {
       const c = document.createElement('canvas'); c.width = w; c.height = h;
       const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h); ctx.drawImage(img, 0, 0, w, h);
       URL.revokeObjectURL(url);
-      resolve(c.toDataURL('image/jpeg', 0.85));
+      resolve(c);
     };
     img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('画像を読み込めませんでした')); };
     img.src = url;
   });
+}
+
+// 自動トリミング：背景より明るく色の薄い一番大きな領域（＝レシート）を切り出す
+function autoCrop(src) {
+  const A = 240, k = A / Math.max(src.width, src.height);
+  const w = Math.max(1, Math.round(src.width * k)), h = Math.max(1, Math.round(src.height * k));
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const ctx = c.getContext('2d', { willReadFrequently: true }); ctx.drawImage(src, 0, 0, w, h);
+  const d = ctx.getImageData(0, 0, w, h).data, n = w * h;
+  const lum = new Uint8Array(n), sat = new Uint8Array(n), hist = new Array(256).fill(0);
+  for (let i = 0; i < n; i++) {
+    const r = d[i * 4], g = d[i * 4 + 1], b = d[i * 4 + 2];
+    const l = ((r * 299 + g * 587 + b * 114) / 1000) | 0;
+    lum[i] = l; sat[i] = Math.max(r, g, b) - Math.min(r, g, b); hist[l]++;
+  }
+  // 大津の二値化でしきい値を自動決定
+  let sumAll = 0; for (let t = 0; t < 256; t++) sumAll += t * hist[t];
+  let wB = 0, sumB = 0, best = 0, th = 128;
+  for (let t = 0; t < 256; t++) {
+    wB += hist[t]; if (!wB) continue;
+    const wF = n - wB; if (!wF) break;
+    sumB += t * hist[t];
+    const mB = sumB / wB, mF = (sumAll - sumB) / wF, v = wB * wF * (mB - mF) ** 2;
+    if (v > best) { best = v; th = t; }
+  }
+  const mask = new Uint8Array(n);
+  for (let i = 0; i < n; i++) mask[i] = (lum[i] > th && sat[i] < 70) ? 1 : 0;
+  // 最大の連結領域を探す
+  const seen = new Uint8Array(n), stack = new Int32Array(n);
+  let bestArea = 0, box = null;
+  for (let i = 0; i < n; i++) {
+    if (!mask[i] || seen[i]) continue;
+    let sp = 0, area = 0, x0 = w, y0 = h, x1 = 0, y1 = 0;
+    stack[sp++] = i; seen[i] = 1;
+    while (sp) {
+      const p = stack[--sp], x = p % w, y = (p / w) | 0; area++;
+      if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+      if (x > 0     && mask[p - 1] && !seen[p - 1]) { seen[p - 1] = 1; stack[sp++] = p - 1; }
+      if (x < w - 1 && mask[p + 1] && !seen[p + 1]) { seen[p + 1] = 1; stack[sp++] = p + 1; }
+      if (y > 0     && mask[p - w] && !seen[p - w]) { seen[p - w] = 1; stack[sp++] = p - w; }
+      if (y < h - 1 && mask[p + w] && !seen[p + w]) { seen[p + w] = 1; stack[sp++] = p + w; }
+    }
+    if (area > bestArea) { bestArea = area; box = [x0, y0, x1, y1]; }
+  }
+  if (!box) return null;
+  const boxArea = (box[2] - box[0] + 1) * (box[3] - box[1] + 1);
+  if (bestArea < n * 0.04 || boxArea > n * 0.85) return null; // 小さすぎ・ほぼ全体（スクショ等）は切らない
+  const m = 0.03; // 余白3%
+  const X0 = Math.max(0, (box[0] / w - m) * src.width), Y0 = Math.max(0, (box[1] / h - m) * src.height);
+  const X1 = Math.min(src.width, ((box[2] + 1) / w + m) * src.width), Y1 = Math.min(src.height, ((box[3] + 1) / h + m) * src.height);
+  const out = document.createElement('canvas');
+  out.width = Math.round(X1 - X0); out.height = Math.round(Y1 - Y0);
+  out.getContext('2d').drawImage(src, X0, Y0, X1 - X0, Y1 - Y0, 0, 0, out.width, out.height);
+  return out;
+}
+
+// 読み込み → 自動トリミング → 長辺2000pxのJPEGにする
+async function prepareImage(file) {
+  let c = await loadToCanvas(file, 3200);
+  const cropped = autoCrop(c);
+  if (cropped) c = cropped;
+  const s = Math.min(1, 2000 / Math.max(c.width, c.height));
+  if (s < 1) {
+    const r = document.createElement('canvas'); r.width = Math.round(c.width * s); r.height = Math.round(c.height * s);
+    r.getContext('2d').drawImage(c, 0, 0, r.width, r.height); c = r;
+  }
+  return { dataUrl: c.toDataURL('image/jpeg', 0.85), cropped: !!cropped };
 }
 
 async function runOcr(file) {
@@ -393,7 +461,7 @@ async function runOcr(file) {
   btn.disabled = true; btn.innerHTML = '<span class="spin"></span>読み取り中…';
   setOcrStatus('画像を送信しています（数秒〜十数秒）', 'muted');
   try {
-    const dataUrl = await fileToJpeg(file);
+    const { dataUrl, cropped } = await prepareImage(file);
     $('#ocrThumb').src = dataUrl; $('#ocrThumb').hidden = false;
     const { result: r } = await api('ocr', { image: dataUrl.split(',')[1], mime: 'image/jpeg' });
     f.type = r.type;
@@ -405,7 +473,7 @@ async function runOcr(file) {
     f.items = r.items || [];
     renderChips(); renderItems();
     const diff = f.items.length && r.total && itemSum() !== r.total ? '（品目合計と金額が違います。値引きや税を確認してください）' : '';
-    setOcrStatus('読み取りました。内容を確認してから保存してください' + diff, 'ok');
+    setOcrStatus((cropped ? '自動トリミングして' : '') + '読み取りました。内容を確認してから保存してください' + diff, 'ok');
   } catch (e) {
     setOcrStatus('読み取りに失敗しました：' + e.message, 'err');
   } finally {
