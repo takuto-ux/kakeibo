@@ -585,7 +585,16 @@ async function deleteRec() {
 }
 
 /* ---------- OCR ---------- */
-function setOcrStatus(msg, cls) { const s = $('#ocrStatus'); s.textContent = msg; s.className = cls || 'muted'; }
+let ocrTimer = null;
+function startOcrTimer(msg) {
+  const t0 = Date.now();
+  clearInterval(ocrTimer);
+  const tick = () => setOcrStatus(`${msg}… ${Math.round((Date.now() - t0) / 1000)}秒`, 'muted');
+  tick(); ocrTimer = setInterval(tick, 1000);
+}
+function stopOcrTimer() { clearInterval(ocrTimer); ocrTimer = null; }
+function setOcrStatus(msg, cls) {
+  if (cls && cls !== 'muted') stopOcrTimer(); const s = $('#ocrStatus'); s.textContent = msg; s.className = cls || 'muted'; }
 
 // 画像を読み込んでcanvasにする（長辺max px）
 function loadToCanvas(file, max) {
@@ -810,10 +819,10 @@ function icLabel(e) {
 async function runIC(file) {
   const btn = $('#ocrBtn');
   btn.disabled = true; btn.innerHTML = '<span class="spin"></span>読み取り中…';
-  setOcrStatus('履歴を読み取っています（10〜20秒）', 'muted');
+  startOcrTimer('履歴を読み取っています');
   try {
-    const c = await loadToCanvas(file, 1800);
-    const dataUrl = c.toDataURL('image/jpeg', 0.85);
+    const c = await loadToCanvas(file, 1500);
+    const dataUrl = c.toDataURL('image/jpeg', 0.8);
     $('#ocrThumb').src = dataUrl; $('#ocrThumb').hidden = false;
     const { result: r } = await api('ocr', { image: dataUrl.split(',')[1], mime: 'image/jpeg', mode: 'ic' });
     if (!r.entries || !r.entries.length) throw new Error('履歴の行を見つけられませんでした');
@@ -827,7 +836,7 @@ async function runIC(file) {
   } catch (e) {
     setOcrStatus('読み取りに失敗しました：' + e.message, 'err');
   } finally {
-    btn.disabled = false; btn.innerHTML = OCR_LABEL;
+    stopOcrTimer(); btn.disabled = false; btn.innerHTML = OCR_LABEL;
   }
 }
 // 記録のしかた：charge＝チャージを支出にする／use＝乗車・物販ごとに支出にする（両方だと二重計上）
@@ -898,7 +907,7 @@ async function confirmCrop() {
 async function ocrCanvas(c, cropped) {
   const btn = $('#ocrBtn');
   btn.disabled = true; btn.innerHTML = '<span class="spin"></span>読み取り中…';
-  setOcrStatus('画像を送信しています（数秒〜十数秒）', 'muted');
+  startOcrTimer('読み取っています');
   try {
     const s = Math.min(1, 1600 / Math.max(c.width, c.height)); // 送るデータを軽くする
     if (s < 1) {
@@ -922,7 +931,7 @@ async function ocrCanvas(c, cropped) {
   } catch (e) {
     setOcrStatus('読み取りに失敗しました：' + e.message, 'err');
   } finally {
-    btn.disabled = false; btn.innerHTML = OCR_LABEL;
+    stopOcrTimer(); btn.disabled = false; btn.innerHTML = OCR_LABEL;
   }
 }
 
