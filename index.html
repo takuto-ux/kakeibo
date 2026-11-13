@@ -164,6 +164,14 @@ header{display:flex;align-items:center;justify-content:space-between;padding:cal
 .legend i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:4px}
 .legend2{display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;margin-top:10px;font-size:11px}
 .stat2{font-size:11px;margin-top:2px}
+/* まとめて取り込み */
+.bulkRow{display:flex;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line2)}
+.bulkRow:last-child{border-bottom:0}
+.bulkRow.off{opacity:.5}
+.bulkRow input[type=checkbox]{width:22px;height:22px;accent-color:var(--accent);flex-shrink:0}
+.bulkRow .t{flex:1;min-width:0;font-size:13px}
+.bulkRow .t>div:first-child{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bsel{margin-top:4px;min-height:32px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);font-size:12px;padding:0 6px}
 /* login */
 #login{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
 #login .card{width:100%;max-width:360px;padding:28px 22px;text-align:center}
@@ -257,6 +265,8 @@ header{display:flex;align-items:center;justify-content:space-between;padding:cal
     </div>
     <div class="tabs" id="typeTabs"><button data-v="expense">支出</button><button data-v="income">収入</button></div>
 
+    <div class="lbl2" style="margin-top:12px">読み取るもの</div>
+    <div class="chips" id="ocrMode"></div>
     <div class="ocr">
       <img id="ocrThumb" alt="読み取った画像" hidden>
       <div style="flex:1">
@@ -354,6 +364,23 @@ header{display:flex;align-items:center;justify-content:space-between;padding:cal
     <button type="button" id="cropEnh"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 4v16" /></svg>文書補正</button>
   </div>
   <div class="cropBottom"><button type="button" class="btn primary" id="cropOk" style="width:100%">この範囲で読み取る</button></div>
+</div>
+<!-- まとめて取り込み（交通系IC履歴） -->
+<div class="overlay" id="bulkOv">
+  <div class="sheet">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <b style="font-size:17px">まとめて取り込み</b>
+      <button class="iconbtn" data-close="bulkOv" aria-label="閉じる" style="width:40px;height:40px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="muted" style="margin-top:4px">交通系ICの履歴から読み取りました。登録するものにチェックを入れてください。</div>
+    <div class="lbl2">記録のしかた</div>
+    <div class="tabs" id="icBasis"><button type="button" data-v="charge">チャージを支出にする</button><button type="button" data-v="use">利用ごとに支出にする</button></div>
+    <div class="muted" id="icBasisNote" style="margin-top:6px"></div>
+    <div id="icWarn" class="warn" style="font-size:12px;margin-top:6px" hidden>チャージと乗車・物販の両方にチェックがあります。同じお金を二重に数えることになるので注意してください。</div>
+    <div class="card" id="bulkList" style="margin-top:10px;padding:2px 14px"></div>
+    <div class="muted" style="margin-top:8px">※すでに登録済みのもの（同じ日・金額・内容）は自動で飛ばします。</div>
+    <div class="actions"><button class="btn primary" id="bulkSave">登録する</button></div>
+  </div>
 </div>
 <datalist id="nameList"></datalist>
 
@@ -508,7 +535,7 @@ function openForm(rec) {
   $('#delBtn').hidden = !rec;
   $('#ocrThumb').hidden = true; $('#ocrThumb').removeAttribute('src'); crop = null;
   $('#ocrFile').value = '';
-  setOcrStatus('レシートやQR決済（PayPayなど）のスクショを選ぶと自動入力します', '');
+  renderOcrMode();
   renderChips(); renderItems(); renderSplit();
   $('#sheetOv').classList.add('open');
 }
@@ -757,10 +784,101 @@ function rotateCrop() {
 }
 
 /* ---- 読み取りの流れ ---- */
+/* ---- 読み取るものの種類 ---- */
+const OCR_MODES = { receipt: 'レシート', qr: '決済アプリ画面', ic: '交通系IC履歴' };
+const OCR_HINTS = {
+  receipt: 'レシートを撮影・選択すると、範囲を合わせて自動入力します',
+  qr: 'PayPayなどの支払い画面のスクショを選ぶと自動入力します',
+  ic: '交通系ICの利用履歴のスクショを選ぶと、まとめて取り込めます'
+};
+let ocrMode = localStorage.getItem('kk_ocrMode') || 'receipt';
+if (!OCR_MODES[ocrMode]) ocrMode = 'receipt';
+function renderOcrMode() {
+  $('#ocrMode').innerHTML = Object.entries(OCR_MODES).map(([k, v]) => `<button type="button" data-om="${k}" class="${k === ocrMode ? 'on' : ''}">${v}</button>`).join('');
+  setOcrStatus(OCR_HINTS[ocrMode], '');
+}
+
+/* ---- 交通系ICの履歴をまとめて取り込む ---- */
+let bulk = [];
+function icLabel(e) {
+  if (e.kind === '乗車') return [e.from, e.to].filter(Boolean).join(' → ') || '電車';
+  if (e.kind === 'バス') return ('バス ' + e.place).trim();
+  if (e.kind === '物販') return ('物販 ' + e.place).trim();
+  if (e.kind === 'チャージ') return `ICチャージ（${e.via || e.place || '入金'}）`;
+  return e.place || 'その他';
+}
+async function runIC(file) {
+  const btn = $('#ocrBtn');
+  btn.disabled = true; btn.innerHTML = '<span class="spin"></span>読み取り中…';
+  setOcrStatus('履歴を読み取っています（10〜20秒）', 'muted');
+  try {
+    const c = await loadToCanvas(file, 1800);
+    const dataUrl = c.toDataURL('image/jpeg', 0.85);
+    $('#ocrThumb').src = dataUrl; $('#ocrThumb').hidden = false;
+    const { result: r } = await api('ocr', { image: dataUrl.split(',')[1], mime: 'image/jpeg', mode: 'ic' });
+    if (!r.entries || !r.entries.length) throw new Error('履歴の行を見つけられませんでした');
+    bulk = r.entries.map(e => ({
+      ...e, label: icLabel(e),
+      category: e.kind === '乗車' || e.kind === 'バス' || e.kind === 'チャージ' ? '交通費' : e.kind === '物販' ? '食費' : 'その他'
+    }));
+    applyBasis();
+    setOcrStatus(`${bulk.length}件を読み取りました`, 'ok');
+    closeForm(); renderBulk(); $('#bulkOv').classList.add('open');
+  } catch (e) {
+    setOcrStatus('読み取りに失敗しました：' + e.message, 'err');
+  } finally {
+    btn.disabled = false; btn.innerHTML = OCR_LABEL;
+  }
+}
+// 記録のしかた：charge＝チャージを支出にする／use＝乗車・物販ごとに支出にする（両方だと二重計上）
+let icBasis = localStorage.getItem('kk_icBasis') || 'charge';
+function applyBasis() {
+  bulk.forEach(e => e.on = icBasis === 'charge' ? e.kind === 'チャージ' : e.kind !== 'チャージ');
+  document.querySelectorAll('#icBasis button').forEach(b => b.classList.toggle('on', b.dataset.v === icBasis));
+  $('#icBasisNote').textContent = icBasis === 'charge'
+    ? 'カードや現金からICに入金した金額を支出にします。乗車・物販はチャージ済みのお金から払っているので、最初はチェックを外しています。'
+    : '乗車・物販のひとつひとつを支出にします。チャージは最初はチェックを外しています。';
+}
+function renderBulk() {
+  $('#bulkList').innerHTML = bulk.map((e, i) => {
+    const charge = e.kind === 'チャージ';
+    return `<div class="bulkRow ${e.on ? '' : 'off'}">
+      <input type="checkbox" data-b="${i}" ${e.on ? 'checked' : ''} aria-label="登録する">
+      <div class="t"><div>${esc(e.label)}</div>
+        <div class="muted">${e.date ? e.date.slice(5).replace('-', '/') : '日付不明（今日にします）'} · ${esc(e.kind)}</div>
+        <select class="bsel" data-bc="${i}" aria-label="カテゴリ">${EXP_CATS.map(c => `<option ${c === e.category ? 'selected' : ''}>${c}</option>`).join('')}</select>
+      </div>
+      <div class="num">-${yen(e.amount)}</div>
+    </div>`;
+  }).join('');
+  const sel = bulk.filter(e => e.on);
+  const mixed = sel.some(e => e.kind === 'チャージ') && sel.some(e => e.kind !== 'チャージ');
+  $('#icWarn').hidden = !mixed;
+  $('#bulkSave').textContent = `${sel.length}件を登録する（合計 ${yen(sel.reduce((a, e) => a + e.amount, 0))}）`;
+  $('#bulkSave').disabled = !sel.length;
+}
+async function saveBulk() {
+  const records = bulk.filter(e => e.on).map(e => ({
+    date: e.date || todayStr(), type: 'expense', amount: e.amount, myShare: e.amount,
+    // チャージは入金元（現金／カード）で払ったことにする。乗車・物販はIC払い
+    method: e.kind === 'チャージ' ? (/現金/.test(e.via) ? '現金' : 'カード') : '交通系IC',
+    category: e.category, store: e.label, memo: e.kind === 'チャージ' ? 'ICチャージ' : ''
+  }));
+  const btn = $('#bulkSave'); btn.disabled = true; btn.textContent = '登録中…';
+  try {
+    const j = await api('saveMany', { records });
+    closeOv('bulkOv');
+    toast(`${j.saved}件を登録しました` + (j.skipped ? `（${j.skipped}件は登録済み）` : ''));
+    load();
+  } catch (e) { toast('登録失敗: ' + e.message); renderBulk(); }
+}
+
 async function runOcr(file) {
+  if (ocrMode === 'ic') return runIC(file);
   setOcrStatus('画像を読み込んでいます…', 'muted');
   try {
     const src = await loadToCanvas(file, 2400);
+    if (ocrMode === 'qr') { crop = null; return await ocrCanvas(src, false); } // スクショはトリミングしない
     const quad = detectQuad(src);
     crop = { src, quad: quad || fullQuad(src), enhance: true };
     if (quad) { setOcrStatus('範囲を確認して「この範囲で読み取る」を押してください', 'muted'); openCrop(); }
@@ -789,7 +907,7 @@ async function ocrCanvas(c, cropped) {
     }
     const dataUrl = c.toDataURL('image/jpeg', 0.8);
     $('#ocrThumb').src = dataUrl; $('#ocrThumb').hidden = false;
-    const { result: r } = await api('ocr', { image: dataUrl.split(',')[1], mime: 'image/jpeg' });
+    const { result: r } = await api('ocr', { image: dataUrl.split(',')[1], mime: 'image/jpeg', mode: ocrMode });
     f.type = r.type;
     if (r.method) f.method = r.method;
     f.category = r.category; f.keepCat = false;
@@ -1227,7 +1345,7 @@ document.addEventListener('click', e => {
   const c = e.target.closest('[data-close]');
   if (c) closeOv(c.dataset.close);
 });
-['budgetOv', 'assetOv'].forEach(id => $('#' + id).addEventListener('click', e => { if (e.target.id === id) closeOv(id); }));
+['budgetOv', 'assetOv', 'bulkOv'].forEach(id => $('#' + id).addEventListener('click', e => { if (e.target.id === id) closeOv(id); }));
 $('#budgetOv').oninput = e => { if (e.target.tagName === 'INPUT') { fmtInput(e.target); updateBudgetSum(); } };
 $('#bSave').onclick = saveBudget;
 $('#assetsView').onclick = e => { const b = e.target.closest('[data-aid]'); if (b) openAsset(state.assets.find(x => x.id === b.dataset.aid)); };
@@ -1262,6 +1380,15 @@ $('#cropSvg').addEventListener('pointermove', e => {
 ['pointerup', 'pointercancel'].forEach(t => $('#cropSvg').addEventListener(t, () => cropView.drag = -1));
 $('#ocrThumb').onclick = () => { if (crop) openCrop(); };
 window.addEventListener('resize', () => { if ($('#cropOv').classList.contains('open')) drawCrop(); });
+
+$('#ocrMode').onclick = e => { const k = e.target.dataset.om; if (k) { ocrMode = k; localStorage.setItem('kk_ocrMode', k); renderOcrMode(); } };
+$('#bulkList').onchange = e => {
+  const t = e.target;
+  if (t.dataset.b != null) { bulk[t.dataset.b].on = t.checked; renderBulk(); }
+  else if (t.dataset.bc != null) bulk[t.dataset.bc].category = t.value;
+};
+$('#bulkSave').onclick = saveBulk;
+$('#icBasis').onclick = e => { const v = e.target.dataset.v; if (v) { icBasis = v; localStorage.setItem('kk_icBasis', v); applyBasis(); renderBulk(); } };
 
 async function doLogin() {
   const pw = $('#pw').value; if (!pw) return;
