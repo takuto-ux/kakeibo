@@ -802,12 +802,13 @@ function rotateCrop() {
 
 /* ---- 読み取りの流れ ---- */
 /* ---- 読み取るものの種類 ---- */
-const OCR_MODES = { receipt: 'レシート', qr: '決済アプリ画面', ic: '交通系IC履歴', card: 'クレカ明細' };
-const isBulkMode = m => m === 'ic' || m === 'card';
+const OCR_MODES = { receipt: 'レシート', qr: '決済アプリ画面', ic: '交通系IC履歴', wallet: 'ウォレット（IC）', card: 'クレカ明細' };
+const isBulkMode = m => m === 'ic' || m === 'wallet' || m === 'card';
 const OCR_HINTS = {
   receipt: 'レシートを撮影・選択すると、範囲を合わせて自動入力します',
   qr: 'PayPayなどの支払い画面のスクショを選ぶと自動入力します',
   ic: '交通系ICの利用履歴のスクショを選ぶと、まとめて取り込めます（複数枚まとめて選べます）',
+  wallet: 'iPhoneウォレットの交通系IC「最近のご利用」のスクショを選ぶと、まとめて取り込めます（複数枚まとめて選べます）',
   card: 'クレカの利用明細のスクショを選ぶと、まとめて取り込めます（複数枚まとめて選べます）'
 };
 let ocrMode = localStorage.getItem('kk_ocrMode') || 'receipt';
@@ -856,14 +857,14 @@ async function runBulk(files) {
         const dataUrl = c.toDataURL('image/jpeg', 0.8);
         if (i === 0) { $('#ocrThumb').src = dataUrl; $('#ocrThumb').hidden = false; }
         const { result: r } = await api('ocr', { image: dataUrl.split(',')[1], mime: 'image/jpeg', mode: kind });
-        rows = mergeOverlap(rows, (r.entries || []).map(e => toRow(e, kind)));
+        rows = mergeOverlap(rows, (r.entries || []).map(e => toRow(e, kind === 'card' ? 'card' : 'ic')));
       } catch (e) {
         fails++;
         if (fails === n) throw e;
       }
     }
     if (!rows.length) throw new Error('明細の行を見つけられませんでした');
-    bulk = rows; bulkKind = kind;
+    bulk = rows; bulkKind = kind === 'card' ? 'card' : 'ic';
     setOcrStatus(`${rows.length}件を読み取りました` + (fails ? `（${fails}枚は読み取れませんでした）` : ''), 'ok');
     closeForm(); openBulk();
   } catch (e) {
