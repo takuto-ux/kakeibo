@@ -380,12 +380,19 @@ const f = { type: 'expense', method: 'QR決済', category: '食費', items: [], 
 
 /* ---------- API ---------- */
 async function api(action, data = {}) {
-  const res = await fetch(API_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({ action, pass: localStorage.getItem('kk_pass'), ...data })
-  });
-  const j = await res.json();
+  let res;
+  try {
+    res = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action, pass: localStorage.getItem('kk_pass'), ...data })
+    });
+  } catch (e) {
+    throw new Error('通信が途中で切れました（電波が弱いか、サーバーの処理に時間がかかりすぎました）。もう一度お試しください');
+  }
+  let j;
+  try { j = await res.json(); }
+  catch (e) { throw new Error('サーバーからの返事を読めませんでした（' + res.status + '）'); }
   if (!j.ok) {
     if (String(j.error).includes('パスワード')) logout();
     throw new Error(j.error);
@@ -775,12 +782,12 @@ async function ocrCanvas(c, cropped) {
   btn.disabled = true; btn.innerHTML = '<span class="spin"></span>読み取り中…';
   setOcrStatus('画像を送信しています（数秒〜十数秒）', 'muted');
   try {
-    const s = Math.min(1, 2000 / Math.max(c.width, c.height));
+    const s = Math.min(1, 1600 / Math.max(c.width, c.height)); // 送るデータを軽くする
     if (s < 1) {
       const r = document.createElement('canvas'); r.width = Math.round(c.width * s); r.height = Math.round(c.height * s);
       r.getContext('2d').drawImage(c, 0, 0, r.width, r.height); c = r;
     }
-    const dataUrl = c.toDataURL('image/jpeg', 0.88);
+    const dataUrl = c.toDataURL('image/jpeg', 0.8);
     $('#ocrThumb').src = dataUrl; $('#ocrThumb').hidden = false;
     const { result: r } = await api('ocr', { image: dataUrl.split(',')[1], mime: 'image/jpeg' });
     f.type = r.type;
