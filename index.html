@@ -84,7 +84,22 @@ header{display:flex;align-items:center;justify-content:space-between;padding:cal
 .btn:disabled{opacity:.5}
 /* OCR */
 .ocr{display:flex;gap:12px;align-items:center;margin-top:12px}
-#ocrThumb{width:64px;height:84px;object-fit:cover;border-radius:10px;border:1px solid var(--line);flex-shrink:0;background:var(--card)}
+#ocrThumb{width:64px;height:84px;object-fit:cover;border-radius:10px;border:1px solid var(--line);flex-shrink:0;background:var(--card);cursor:pointer}
+/* トリミング画面 */
+#cropOv{position:fixed;inset:0;background:#0d0c12;z-index:30;display:none;flex-direction:column;color:#ECEAF3}
+#cropOv.open{display:flex}
+.cropTop{display:flex;justify-content:space-between;align-items:center;padding:calc(10px + env(safe-area-inset-top)) 12px 6px}
+.cropTop b{font-size:16px}
+.cropTop button{min-height:44px;padding:0 12px;border:0;background:none;color:#ECEAF3;font-size:14px}
+#cropStage{flex:1;display:flex;align-items:center;justify-content:center;overflow:hidden;min-height:0}
+#cropWrap{position:relative}
+#cropCv{display:block;border-radius:4px}
+#cropSvg{position:absolute;inset:0;touch-action:none}
+.cropTools{display:flex;justify-content:center;gap:8px;padding:8px 12px;flex-wrap:wrap}
+.cropTools button{min-height:40px;padding:0 14px;border-radius:999px;border:1px solid #3A3748;background:#1B1A22;color:#ECEAF3;font-size:12px;display:flex;gap:6px;align-items:center}
+.cropTools button.on{background:#7C5CFF;border-color:#7C5CFF;font-weight:700}
+.cropBottom{padding:6px 16px calc(14px + env(safe-area-inset-bottom))}
+.cropHint{text-align:center;font-size:11px;color:#A29FB2;padding-bottom:4px}
 .ocrbtn{width:100%;min-height:52px;border-radius:14px;border:1.5px dashed var(--accent);background:var(--card);color:var(--accent);font-weight:700;font-size:14px;display:flex;align-items:center;justify-content:center;gap:8px}
 .ocrbtn:disabled{opacity:.6}
 #ocrStatus{font-size:12px;margin-top:6px;min-height:16px}
@@ -246,7 +261,7 @@ header{display:flex;align-items:center;justify-content:space-between;padding:cal
       <img id="ocrThumb" alt="読み取った画像" hidden>
       <div style="flex:1">
         <button class="ocrbtn" id="ocrBtn" type="button"></button>
-        <div id="ocrStatus" class="muted">レシートやPayPayのスクショを選ぶと自動入力します</div>
+        <div id="ocrStatus" class="muted">レシートやQR決済（PayPayなど）のスクショを選ぶと自動入力します</div>
       </div>
     </div>
     <input type="file" id="ocrFile" accept="image/*" hidden>
@@ -323,6 +338,23 @@ header{display:flex;align-items:center;justify-content:space-between;padding:cal
     </div>
   </div>
 </div>
+<!-- トリミング（Lens風） -->
+<div id="cropOv" role="dialog" aria-label="トリミング">
+  <div class="cropTop">
+    <button type="button" id="cropCancel">キャンセル</button>
+    <b>範囲を調整</b>
+    <span style="width:72px"></span>
+  </div>
+  <div id="cropStage"><div id="cropWrap"><canvas id="cropCv"></canvas><svg id="cropSvg" xmlns="http://www.w3.org/2000/svg"></svg></div></div>
+  <div class="cropHint">四隅の白い丸をドラッグして、紙の角に合わせてください</div>
+  <div class="cropTools">
+    <button type="button" id="cropAuto"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4"/></svg>自動検出</button>
+    <button type="button" id="cropAll"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="1"/></svg>全体</button>
+    <button type="button" id="cropRot"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/></svg>回転</button>
+    <button type="button" id="cropEnh"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 4v16" /></svg>文書補正</button>
+  </div>
+  <div class="cropBottom"><button type="button" class="btn primary" id="cropOk" style="width:100%">この範囲で読み取る</button></div>
+</div>
 <datalist id="nameList"></datalist>
 
 <div class="toast" id="toast"></div>
@@ -332,7 +364,7 @@ const API_URL = 'https://script.google.com/macros/s/AKfycbxun63HIuJEJAHTD-oKqFPU
 
 const EXP_CATS = ['食費','外食','日用品','交通費','宿泊費','懇親会','交際費','娯楽','趣味','衣服・美容','医療','通信費','光熱費','家賃','サブスク','教育・書籍','旅行','プレゼント','その他'];
 const INC_CATS = ['給与','バイト','臨時収入','返金','お小遣い','その他'];
-const METHODS  = ['現金','PayPay','カード','振込','その他'];
+const METHODS  = ['現金','QR決済','交通系IC','カード','振込','その他'];
 const COLORS   = ['#7C5CFF','#B7A6FF','#E07B39','#3BA3A0','#D6619B','#5B8DEF','#9A96A8'];
 const OCR_LABEL = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>写真から読み取る';
 
@@ -344,7 +376,7 @@ const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${pad(
 const shiftMonth = (m, k) => { let [y, mo] = m.split('-').map(Number); mo += k; while (mo < 1) { mo += 12; y--; } while (mo > 12) { mo -= 12; y++; } return `${y}-${pad(mo)}`; };
 
 const state = { month: todayStr().slice(0,7), records: [], editing: null, owe: [], names: [], view: 'home', settings: {}, summary: [], assets: [], assetsLoaded: false };
-const f = { type: 'expense', method: 'PayPay', category: '食費', items: [], keepCat: false, split: null };
+const f = { type: 'expense', method: 'QR決済', category: '食費', items: [], keepCat: false, split: null };
 
 /* ---------- API ---------- */
 async function api(action, data = {}) {
@@ -369,12 +401,18 @@ function showApp() { $('#login').hidden = true; $('#app').hidden = false; window
 function logout() { localStorage.removeItem('kk_pass'); showLogin(); }
 
 /* ---------- データ読み込み ---------- */
+// 旧データの「PayPay」は「QR決済」として扱う
+function normRec(r) {
+  if (r.method === 'PayPay') r.method = 'QR決済';
+  (r.split?.parts || []).forEach(p => { if (p.method === 'PayPay') p.method = 'QR決済'; });
+  return r;
+}
 async function load() {
   $('#month').textContent = state.month.replace('-', '/');
   $('#list').innerHTML = '<div class="empty">読み込み中…</div>';
   try {
     const j = await api('list', { month: state.month });
-    state.records = j.records;
+    state.records = j.records.map(normRec);
     render(); renderBudget();
     if (state.view === 'report') { renderReport(); loadSummary(); }
   } catch (e) {
@@ -449,7 +487,7 @@ function renderItems() {
 function openForm(rec) {
   state.editing = rec || null;
   f.type = rec?.type || 'expense';
-  f.method = rec?.method || (f.type === 'income' ? '振込' : 'PayPay');
+  f.method = rec?.method || (f.type === 'income' ? '振込' : 'QR決済');
   f.category = rec?.category || (f.type === 'income' ? INC_CATS[0] : EXP_CATS[0]);
   f.keepCat = !!rec;
   f.items = Array.isArray(rec?.items) ? rec.items.map(it => ({ ...it })) : [];
@@ -461,9 +499,9 @@ function openForm(rec) {
   $('#fMemo').value = rec?.memo || '';
   $('#sheetTitle').textContent = rec ? '記録を編集' : '記録を追加';
   $('#delBtn').hidden = !rec;
-  $('#ocrThumb').hidden = true; $('#ocrThumb').removeAttribute('src');
+  $('#ocrThumb').hidden = true; $('#ocrThumb').removeAttribute('src'); crop = null;
   $('#ocrFile').value = '';
-  setOcrStatus('レシートやPayPayのスクショを選ぶと自動入力します', '');
+  setOcrStatus('レシートやQR決済（PayPayなど）のスクショを選ぶと自動入力します', '');
   renderChips(); renderItems(); renderSplit();
   $('#sheetOv').classList.add('open');
 }
@@ -533,9 +571,13 @@ function loadToCanvas(file, max) {
   });
 }
 
-// 自動トリミング：背景より明るく色の薄い一番大きな領域（＝レシート）を切り出す
-function autoCrop(src) {
-  const A = 240, k = A / Math.max(src.width, src.height);
+/* ---------- Lens風トリミング（四隅検出 → 台形補正 → 文書補正） ---------- */
+let crop = null; // { src: canvas, quad: [[x,y]×4 TL,TR,BR,BL], enhance: bool }
+const fullQuad = c => [[0, 0], [c.width, 0], [c.width, c.height], [0, c.height]];
+
+// 背景より明るく色の薄い一番大きな領域（＝紙）の四隅を探す
+function detectQuad(src) {
+  const A = 320, k = A / Math.max(src.width, src.height);
   const w = Math.max(1, Math.round(src.width * k)), h = Math.max(1, Math.round(src.height * k));
   const c = document.createElement('canvas'); c.width = w; c.height = h;
   const ctx = c.getContext('2d', { willReadFrequently: true }); ctx.drawImage(src, 0, 0, w, h);
@@ -546,7 +588,6 @@ function autoCrop(src) {
     const l = ((r * 299 + g * 587 + b * 114) / 1000) | 0;
     lum[i] = l; sat[i] = Math.max(r, g, b) - Math.min(r, g, b); hist[l]++;
   }
-  // 大津の二値化でしきい値を自動決定
   let sumAll = 0; for (let t = 0; t < 256; t++) sumAll += t * hist[t];
   let wB = 0, sumB = 0, best = 0, th = 128;
   for (let t = 0; t < 256; t++) {
@@ -556,56 +597,190 @@ function autoCrop(src) {
     const mB = sumB / wB, mF = (sumAll - sumB) / wF, v = wB * wF * (mB - mF) ** 2;
     if (v > best) { best = v; th = t; }
   }
+  // 明るい白っぽい所 ＋ 影になった紙（暗めでも色が薄い所）
   const mask = new Uint8Array(n);
-  for (let i = 0; i < n; i++) mask[i] = (lum[i] > th && sat[i] < 70) ? 1 : 0;
-  // 最大の連結領域を探す
+  for (let i = 0; i < n; i++) mask[i] = ((lum[i] > th && sat[i] < 35) || (lum[i] > th * 0.55 && sat[i] < 22)) ? 1 : 0;
   const seen = new Uint8Array(n), stack = new Int32Array(n);
-  let bestArea = 0, box = null;
+  let bestArea = 0, q = null;
   for (let i = 0; i < n; i++) {
     if (!mask[i] || seen[i]) continue;
-    let sp = 0, area = 0, x0 = w, y0 = h, x1 = 0, y1 = 0;
+    let sp = 0, area = 0;
+    let tl = [0, 0, Infinity], br = [0, 0, -Infinity], tr = [0, 0, -Infinity], bl = [0, 0, Infinity];
     stack[sp++] = i; seen[i] = 1;
     while (sp) {
       const p = stack[--sp], x = p % w, y = (p / w) | 0; area++;
-      if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+      const s1 = x + y, s2 = x - y;
+      if (s1 < tl[2]) tl = [x, y, s1]; if (s1 > br[2]) br = [x, y, s1];
+      if (s2 > tr[2]) tr = [x, y, s2]; if (s2 < bl[2]) bl = [x, y, s2];
       if (x > 0     && mask[p - 1] && !seen[p - 1]) { seen[p - 1] = 1; stack[sp++] = p - 1; }
       if (x < w - 1 && mask[p + 1] && !seen[p + 1]) { seen[p + 1] = 1; stack[sp++] = p + 1; }
       if (y > 0     && mask[p - w] && !seen[p - w]) { seen[p - w] = 1; stack[sp++] = p - w; }
       if (y < h - 1 && mask[p + w] && !seen[p + w]) { seen[p + w] = 1; stack[sp++] = p + w; }
     }
-    if (area > bestArea) { bestArea = area; box = [x0, y0, x1, y1]; }
+    if (area > bestArea) { bestArea = area; q = [tl, tr, br, bl]; }
   }
-  if (!box) return null;
-  const boxArea = (box[2] - box[0] + 1) * (box[3] - box[1] + 1);
-  if (bestArea < n * 0.04 || boxArea > n * 0.85) return null; // 小さすぎ・ほぼ全体（スクショ等）は切らない
-  const m = 0.03; // 余白3%
-  const X0 = Math.max(0, (box[0] / w - m) * src.width), Y0 = Math.max(0, (box[1] / h - m) * src.height);
-  const X1 = Math.min(src.width, ((box[2] + 1) / w + m) * src.width), Y1 = Math.min(src.height, ((box[3] + 1) / h + m) * src.height);
-  const out = document.createElement('canvas');
-  out.width = Math.round(X1 - X0); out.height = Math.round(Y1 - Y0);
-  out.getContext('2d').drawImage(src, X0, Y0, X1 - X0, Y1 - Y0, 0, 0, out.width, out.height);
+  if (!q || bestArea < n * 0.04) return null;
+  const quad = q.map(([x, y]) => [(x + 0.5) / w * src.width, (y + 0.5) / h * src.height]);
+  // 四角形の面積が画像のほぼ全体（スクショ等）なら切らない
+  const area = Math.abs(quad.reduce((s, p, i) => { const r = quad[(i + 1) % 4]; return s + p[0] * r[1] - r[0] * p[1]; }, 0)) / 2;
+  if (area > src.width * src.height * 0.8) return null;
+  return quad;
+}
+
+// 4点から射影変換行列を求める（dst → src）
+function homography(dst, src) {
+  const A = [], b = [];
+  for (let i = 0; i < 4; i++) {
+    const [x, y] = dst[i], [u, v] = src[i];
+    A.push([x, y, 1, 0, 0, 0, -u * x, -u * y]); b.push(u);
+    A.push([0, 0, 0, x, y, 1, -v * x, -v * y]); b.push(v);
+  }
+  for (let c = 0; c < 8; c++) {
+    let p = c;
+    for (let r = c + 1; r < 8; r++) if (Math.abs(A[r][c]) > Math.abs(A[p][c])) p = r;
+    [A[c], A[p]] = [A[p], A[c]]; [b[c], b[p]] = [b[p], b[c]];
+    for (let r = 0; r < 8; r++) {
+      if (r === c) continue;
+      const k = A[r][c] / A[c][c];
+      for (let j = c; j < 8; j++) A[r][j] -= k * A[c][j];
+      b[r] -= k * b[c];
+    }
+  }
+  return b.map((v, i) => v / A[i][i]);
+}
+
+// 台形補正：四隅で囲まれた部分を長方形に引き伸ばす
+function warp(src, q) {
+  const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+  let W = Math.max(dist(q[0], q[1]), dist(q[3], q[2])), H = Math.max(dist(q[0], q[3]), dist(q[1], q[2]));
+  const s = Math.min(1, 2000 / Math.max(W, H));
+  W = Math.max(8, Math.round(W * s)); H = Math.max(8, Math.round(H * s));
+  const hm = homography([[0, 0], [W, 0], [W, H], [0, H]], q);
+  const sw = src.width, sh = src.height;
+  const sd = src.getContext('2d').getImageData(0, 0, sw, sh).data;
+  const out = document.createElement('canvas'); out.width = W; out.height = H;
+  const octx = out.getContext('2d'), img = octx.createImageData(W, H), od = img.data;
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const X = x + 0.5, Y = y + 0.5, z = hm[6] * X + hm[7] * Y + 1;
+      let u = (hm[0] * X + hm[1] * Y + hm[2]) / z - 0.5, v = (hm[3] * X + hm[4] * Y + hm[5]) / z - 0.5;
+      if (u < 0) u = 0; else if (u > sw - 1.001) u = sw - 1.001;
+      if (v < 0) v = 0; else if (v > sh - 1.001) v = sh - 1.001;
+      const x0 = u | 0, y0 = v | 0, fx = u - x0, fy = v - y0;
+      const i00 = (y0 * sw + x0) * 4, i10 = i00 + 4, i01 = i00 + sw * 4, i11 = i01 + 4, o = (y * W + x) * 4;
+      for (let c = 0; c < 3; c++)
+        od[o + c] = (sd[i00 + c] * (1 - fx) + sd[i10 + c] * fx) * (1 - fy) + (sd[i01 + c] * (1 - fx) + sd[i11 + c] * fx) * fy;
+      od[o + 3] = 255;
+    }
+  }
+  octx.putImageData(img, 0, 0);
   return out;
 }
 
-// 読み込み → 自動トリミング → 長辺2000pxのJPEGにする
-async function prepareImage(file) {
-  let c = await loadToCanvas(file, 3200);
-  const cropped = autoCrop(c);
-  if (cropped) c = cropped;
-  const s = Math.min(1, 2000 / Math.max(c.width, c.height));
-  if (s < 1) {
-    const r = document.createElement('canvas'); r.width = Math.round(c.width * s); r.height = Math.round(c.height * s);
-    r.getContext('2d').drawImage(c, 0, 0, r.width, r.height); c = r;
+// 文書補正：影をならして紙を白く、文字をくっきり
+function enhance(c) {
+  const W = c.width, H = c.height, ctx = c.getContext('2d');
+  const im = ctx.getImageData(0, 0, W, H), d = im.data, n = W * H;
+  // 背景（紙の明るさ）の推定：小さく縮めてから戻す＝強いぼかし
+  const bw = Math.max(4, Math.round(W / 24)), bh = Math.max(4, Math.round(H / 24));
+  const sm = document.createElement('canvas'); sm.width = bw; sm.height = bh;
+  sm.getContext('2d').drawImage(c, 0, 0, bw, bh);
+  const bg = document.createElement('canvas'); bg.width = W; bg.height = H;
+  const bctx = bg.getContext('2d'); bctx.imageSmoothingEnabled = true; bctx.imageSmoothingQuality = 'high';
+  bctx.drawImage(sm, 0, 0, W, H);
+  const bd = bctx.getImageData(0, 0, W, H).data;
+  const hist = new Uint32Array(256);
+  for (let i = 0; i < n * 4; i += 4) {
+    for (let k = 0; k < 3; k++) d[i + k] = Math.min(255, d[i + k] / Math.max(bd[i + k], 40) * 245);
+    hist[(d[i] * 299 + d[i + 1] * 587 + d[i + 2] * 114) / 1000 | 0]++;
   }
-  return { dataUrl: c.toDataURL('image/jpeg', 0.85), cropped: !!cropped };
+  // 暗い側を少し締める（コントラスト）
+  let acc = 0, lo = 0;
+  for (let t = 0; t < 256; t++) { acc += hist[t]; if (acc <= n * 0.01) lo = t; else break; }
+  lo = Math.min(lo + 20, 120);
+  const kk = 255 / (250 - lo);
+  for (let i = 0; i < n * 4; i += 4) for (let k = 0; k < 3; k++) d[i + k] = Math.max(0, Math.min(255, (d[i + k] - lo) * kk));
+  ctx.putImageData(im, 0, 0);
+  return c;
 }
 
+/* ---- トリミング画面 ---- */
+let cropView = { s: 1, drag: -1 };
+function openCrop() {
+  $('#cropOv').classList.add('open');
+  $('#cropEnh').classList.toggle('on', crop.enhance);
+  requestAnimationFrame(drawCrop);
+}
+function closeCrop() { $('#cropOv').classList.remove('open'); }
+function drawCrop() {
+  const stage = $('#cropStage'), src = crop.src;
+  const s = Math.min((stage.clientWidth - 40) / src.width, (stage.clientHeight - 40) / src.height);
+  cropView.s = s;
+  const cw = Math.round(src.width * s), ch = Math.round(src.height * s);
+  const cv = $('#cropCv'); cv.width = cw; cv.height = ch;
+  cv.getContext('2d').drawImage(src, 0, 0, cw, ch);
+  const svg = $('#cropSvg'); svg.setAttribute('width', cw); svg.setAttribute('height', ch); svg.setAttribute('viewBox', `0 0 ${cw} ${ch}`);
+  $('#cropWrap').style.width = cw + 'px'; $('#cropWrap').style.height = ch + 'px';
+  drawQuad();
+}
+function drawQuad() {
+  const s = cropView.s, cw = crop.src.width * s, ch = crop.src.height * s;
+  const pts = crop.quad.map(([x, y]) => [x * s, y * s]);
+  const poly = pts.map(p => p.join(',')).join(' ');
+  $('#cropSvg').innerHTML =
+    `<path d="M0 0H${cw}V${ch}H0Z M${pts.map(p => p.join(' ')).join(' L')}Z" fill="rgba(0,0,0,.55)" fill-rule="evenodd"/>
+     <polygon points="${poly}" fill="rgba(124,92,255,.12)" stroke="#8B6CFF" stroke-width="2"/>
+     ${pts.map(([x, y], i) => `<circle cx="${x}" cy="${y}" r="26" fill="transparent" data-h="${i}"/><circle cx="${x}" cy="${y}" r="11" fill="#fff" stroke="#7C5CFF" stroke-width="3" pointer-events="none"/>`).join('')}`;
+}
+function cropPoint(e) {
+  const r = $('#cropSvg').getBoundingClientRect(), s = cropView.s;
+  const x = Math.max(0, Math.min(crop.src.width, (e.clientX - r.left) / s));
+  const y = Math.max(0, Math.min(crop.src.height, (e.clientY - r.top) / s));
+  return [x, y];
+}
+function rotateCrop() {
+  const o = crop.src, c = document.createElement('canvas');
+  c.width = o.height; c.height = o.width;
+  const ctx = c.getContext('2d'); ctx.translate(c.width, 0); ctx.rotate(Math.PI / 2); ctx.drawImage(o, 0, 0);
+  // 時計回り90°：(x, y) → (H − y, x)。並び順（左上→右上→右下→左下）も1つずらす
+  const q = crop.quad.map(([x, y]) => [o.height - y, x]);
+  crop.quad = [q[3], q[0], q[1], q[2]];
+  crop.src = c;
+  drawCrop();
+}
+
+/* ---- 読み取りの流れ ---- */
 async function runOcr(file) {
+  setOcrStatus('画像を読み込んでいます…', 'muted');
+  try {
+    const src = await loadToCanvas(file, 2400);
+    const quad = detectQuad(src);
+    crop = { src, quad: quad || fullQuad(src), enhance: true };
+    if (quad) { setOcrStatus('範囲を確認して「この範囲で読み取る」を押してください', 'muted'); openCrop(); }
+    else await ocrCanvas(src, false); // スクショなどはそのまま
+  } catch (e) { setOcrStatus('画像を読み込めませんでした：' + e.message, 'err'); }
+}
+
+async function confirmCrop() {
+  closeCrop();
+  setOcrStatus('補正しています…', 'muted');
+  await new Promise(r => setTimeout(r, 30)); // 表示を先に更新
+  let c = warp(crop.src, crop.quad);
+  if (crop.enhance) c = enhance(c);
+  await ocrCanvas(c, true);
+}
+
+async function ocrCanvas(c, cropped) {
   const btn = $('#ocrBtn');
   btn.disabled = true; btn.innerHTML = '<span class="spin"></span>読み取り中…';
   setOcrStatus('画像を送信しています（数秒〜十数秒）', 'muted');
   try {
-    const { dataUrl, cropped } = await prepareImage(file);
+    const s = Math.min(1, 2000 / Math.max(c.width, c.height));
+    if (s < 1) {
+      const r = document.createElement('canvas'); r.width = Math.round(c.width * s); r.height = Math.round(c.height * s);
+      r.getContext('2d').drawImage(c, 0, 0, r.width, r.height); c = r;
+    }
+    const dataUrl = c.toDataURL('image/jpeg', 0.88);
     $('#ocrThumb').src = dataUrl; $('#ocrThumb').hidden = false;
     const { result: r } = await api('ocr', { image: dataUrl.split(',')[1], mime: 'image/jpeg' });
     f.type = r.type;
@@ -618,7 +793,7 @@ async function runOcr(file) {
     if (f.type === 'income') f.split = null;
     renderChips(); renderItems(); renderSplit();
     const diff = f.items.length && r.total && itemSum() !== r.total ? '（品目合計と金額が違います。値引きや税を確認してください）' : '';
-    setOcrStatus((cropped ? '自動トリミングして' : '') + '読み取りました。内容を確認してから保存してください' + diff, 'ok');
+    setOcrStatus((cropped ? 'トリミングして' : '') + '読み取りました。内容を確認してから保存してください' + diff + (crop ? '　画像を押すと範囲を直せます' : ''), 'ok');
   } catch (e) {
     setOcrStatus('読み取りに失敗しました：' + e.message, 'err');
   } finally {
@@ -627,8 +802,8 @@ async function runOcr(file) {
 }
 
 /* ---------- 割り勘・立替 ---------- */
-const SPLIT_METHODS = ['現金', 'PayPay', 'その他'];
-const newPart = () => ({ name: '', amount: 0, method: 'PayPay', done: false, doneDate: null });
+const SPLIT_METHODS = ['現金', 'QR決済', '振込', 'その他'];
+const newPart = () => ({ name: '', amount: 0, method: 'QR決済', done: false, doneDate: null });
 const totalAmt = () => Number($('#fAmount').value.replace(/[^\d]/g, '')) || 0;
 
 function ensureParts() {
@@ -704,7 +879,7 @@ function updateSplitSum() {
 async function loadOwe() {
   try {
     const j = await api('outstanding');
-    state.owe = j.records; state.names = j.names || [];
+    state.owe = j.records.map(normRec); state.names = j.names || [];
     $('#nameList').innerHTML = state.names.map(n => `<option value="${esc(n)}">`).join('');
     renderOwe();
   } catch (e) { /* 一覧が取れなくても本体は動かす */ }
@@ -937,7 +1112,7 @@ function renderAssets() {
   h += `<div class="card sec" style="padding:2px 14px">${a.length ? a.map(x => `<button class="row" data-aid="${esc(x.id)}">
       <div class="t"><div>${esc(x.name)}</div><div>${esc(x.kind)}${x.memo ? ' · ' + esc(x.memo) : ''} · ${ago(x.updatedAt)}更新</div></div>
       <div class="a num ${isDebt(x.kind) ? 'warn' : ''}">${isDebt(x.kind) ? '-' : ''}${yen(x.balance)}</div></button>`).join('')
-    : '<div class="empty">まだ登録がありません。<br>銀行口座やPayPay残高を登録しましょう</div>'}</div>`;
+    : '<div class="empty">まだ登録がありません。<br>銀行口座や電子マネーの残高を登録しましょう</div>'}</div>`;
   h += `<button class="btn primary" data-act="addAsset" style="width:100%;margin-top:12px">＋ 口座・残高を追加</button>
     <div class="muted" style="margin-top:8px">残高が変わったら、口座を押して新しい金額を入れてください。</div>`;
   $('#assetsView').innerHTML = h;
@@ -984,7 +1159,7 @@ $('#saveBtn').onclick = saveForm;
 $('#delBtn').onclick = deleteRec;
 $('#logout').onclick = logout;
 $('#list').onclick = e => { const b = e.target.closest('.row'); if (b) openForm(state.records.find(r => r.id === b.dataset.id)); };
-$('#typeTabs').onclick = e => { const v = e.target.dataset.v; if (v && v !== f.type) { f.type = v; f.keepCat = false; f.method = v === 'income' ? '振込' : 'PayPay'; if (v === 'income') f.split = null; renderChips(); renderSplit(); } };
+$('#typeTabs').onclick = e => { const v = e.target.dataset.v; if (v && v !== f.type) { f.type = v; f.keepCat = false; f.method = v === 'income' ? '振込' : 'QR決済'; if (v === 'income') f.split = null; renderChips(); renderSplit(); } };
 $('#methodChips').onclick = e => { const v = e.target.dataset.v; if (v) { f.method = v; renderChips(); } };
 $('#fCat').onchange = e => { f.category = e.target.value; };
 $('#fAmount').oninput = e => { const n = e.target.value.replace(/[^\d]/g, ''); e.target.value = n ? Number(n).toLocaleString('ja-JP') : ''; updateSplitSum(); };
@@ -1053,6 +1228,33 @@ $('#aKinds').onclick = e => { const k = e.target.dataset.k; if (k) { aKind = k; 
 $('#aBal').oninput = e => fmtInput(e.target);
 $('#aSave').onclick = saveAsset;
 $('#aDel').onclick = delAsset;
+
+$('#cropCancel').onclick = () => { closeCrop(); setOcrStatus('キャンセルしました', 'muted'); };
+$('#cropOk').onclick = confirmCrop;
+$('#cropAuto').onclick = () => { const q = detectQuad(crop.src); if (q) { crop.quad = q; drawQuad(); } else toast('紙の範囲を見つけられませんでした'); };
+$('#cropAll').onclick = () => { crop.quad = fullQuad(crop.src); drawQuad(); };
+$('#cropRot').onclick = rotateCrop;
+$('#cropEnh').onclick = () => { crop.enhance = !crop.enhance; $('#cropEnh').classList.toggle('on', crop.enhance); };
+$('#cropSvg').addEventListener('pointerdown', e => {
+  let i = e.target.dataset?.h;
+  if (i == null) { // 丸の外を押したら一番近い角をつかむ
+    const p = cropPoint(e);
+    let bd = Infinity;
+    crop.quad.forEach((q, k) => { const dd = Math.hypot(q[0] - p[0], q[1] - p[1]); if (dd < bd) { bd = dd; i = k; } });
+    if (bd * cropView.s > 60) return;
+  }
+  cropView.drag = Number(i);
+  $('#cropSvg').setPointerCapture(e.pointerId);
+  e.preventDefault();
+});
+$('#cropSvg').addEventListener('pointermove', e => {
+  if (cropView.drag < 0) return;
+  crop.quad[cropView.drag] = cropPoint(e);
+  drawQuad();
+});
+['pointerup', 'pointercancel'].forEach(t => $('#cropSvg').addEventListener(t, () => cropView.drag = -1));
+$('#ocrThumb').onclick = () => { if (crop) openCrop(); };
+window.addEventListener('resize', () => { if ($('#cropOv').classList.contains('open')) drawCrop(); });
 
 async function doLogin() {
   const pw = $('#pw').value; if (!pw) return;
