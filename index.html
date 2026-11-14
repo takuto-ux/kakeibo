@@ -515,8 +515,8 @@ function render() {
   });
   const bal = inc - exp;
   $('#bal').textContent = (bal >= 0 ? '+' : '-') + yen(Math.abs(bal));
-  $('#inc').textContent = yen(inc);
-  $('#exp').textContent = yen(exp);
+  $('#inc').textContent = '+' + yen(inc);
+  $('#exp').textContent = '-' + yen(exp);
   const cardAmt = recs.filter(r => r.type === 'expense' && r.method === 'カード').reduce((a, r) => a + r.myShare, 0);
   $('#cardPart').textContent = cardAmt ? `うちクレカ（後払い） ${yen(cardAmt)}` : '';
   const pct = inc > 0 ? Math.round(exp / inc * 100) : 0;
